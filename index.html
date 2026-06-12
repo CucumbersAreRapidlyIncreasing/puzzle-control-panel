@@ -310,7 +310,10 @@
     const dialValues = [1, 1, 1, 1, 1];
     const dialTurns = [0, 0, 0, 0, 0];
     const activeButtons = new Map();
+    const leverTargetSequence = ['yellow', 'blue', 'red', 'blue'];
+    const leverHistory = [];
     let activeLever = null;
+    let leverSequenceSolved = false;
     let chordLocked = false;
     let dialSolved = false;
 
@@ -410,13 +413,26 @@
 
     function toggleLever(selected) {
       const selectedColor = selected.dataset.color;
+      const turningOn = activeLever !== selectedColor;
       document.querySelectorAll('.lever').forEach(lever => {
-        const shouldBeOn = lever === selected && activeLever !== selectedColor;
+        const shouldBeOn = lever === selected && turningOn;
         lever.setAttribute('aria-pressed', String(shouldBeOn));
         const color = colors.find(item => item.id === lever.dataset.color);
         lever.setAttribute('aria-label', `${color.label}のレバー：${shouldBeOn ? 'ON' : 'OFF'}`);
       });
-      activeLever = activeLever === selectedColor ? null : selectedColor;
+      activeLever = turningOn ? selectedColor : null;
+
+      if (turningOn && !leverSequenceSolved) {
+        leverHistory.push(selectedColor);
+        if (leverHistory.length > leverTargetSequence.length) leverHistory.shift();
+
+        const matches = leverHistory.length === leverTargetSequence.length
+          && leverHistory.every((color, index) => color === leverTargetSequence[index]);
+        if (matches) {
+          leverSequenceSolved = true;
+          showModal('これで起動できそうだ', true);
+        }
+      }
     }
 
     function pressButton(event) {
@@ -467,6 +483,8 @@
 
     function resetAll() {
       activeLever = null;
+      leverSequenceSolved = false;
+      leverHistory.length = 0;
       chordLocked = false;
       dialSolved = false;
       activeButtons.clear();
