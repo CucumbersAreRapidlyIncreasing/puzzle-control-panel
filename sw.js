@@ -1,4 +1,4 @@
-const CACHE_NAME = 'puzzle-control-panel-v2';
+const CACHE_NAME = 'puzzle-control-panel-v3';
 const APP_FILES = [
   './',
   './index.html',
