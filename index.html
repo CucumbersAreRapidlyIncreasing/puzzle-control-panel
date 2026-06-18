@@ -316,6 +316,7 @@
     let leverSequenceSolved = false;
     let chordLocked = false;
     let dialSolved = false;
+    let audioContext;
 
     const leverSvg = color => `
       <svg class="control-svg" viewBox="0 0 100 136" role="img" aria-hidden="true">
@@ -412,6 +413,7 @@
     }
 
     function toggleLever(selected) {
+      playSound('lever');
       const selectedColor = selected.dataset.color;
       const turningOn = activeLever !== selectedColor;
       document.querySelectorAll('.lever').forEach(lever => {
@@ -452,6 +454,7 @@
 
     function pressButton(event) {
       event.preventDefault();
+      playSound('button');
       const button = event.currentTarget;
       button.setPointerCapture(event.pointerId);
       activeButtons.set(event.pointerId, button.dataset.color);
@@ -473,6 +476,7 @@
     }
 
     function turnDial(dial, index) {
+      playSound('dial');
       dialValues[index] = dialValues[index] % 6 + 1;
       dialTurns[index] += 1;
       const rotation = dialTurns[index] * -60;
@@ -481,11 +485,26 @@
       dial.setAttribute('aria-label', `ダイヤル${dialLetters[index]}：${dialValues[index]}`);
 
       const solved = dialValues.every((value, i) => value === targetDials[i]);
-      if (solved && !dialSolved) showModal('システムが復旧しました', true);
+      if (solved && !dialSolved) {
+        showModal('システムが復旧しました', true);
+        resetDials();
+      }
       dialSolved = solved;
     }
 
+    function resetDials() {
+      dialSolved = false;
+      document.querySelectorAll('.dial').forEach((dial, index) => {
+        dialValues[index] = 1;
+        dialTurns[index] = 0;
+        dial.querySelector('.rotor').style.transform = 'rotate(0deg)';
+        dial.querySelector('.svg-value').textContent = '1';
+        dial.setAttribute('aria-label', `ダイヤル${dialLetters[index]}：1`);
+      });
+    }
+
     function showModal(message, success) {
+      playSound(success ? 'success' : 'error');
       const modal = document.getElementById('modal');
       const icon = modal.querySelector('.modal-icon');
       document.getElementById('modalMessage').textContent = message;
@@ -497,19 +516,100 @@
     function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
     function resetAll() {
+      playSound('reset');
       resetLevers();
       chordLocked = false;
       dialSolved = false;
       activeButtons.clear();
       document.querySelectorAll('.push-button').forEach(button => button.classList.remove('is-down'));
-      document.querySelectorAll('.dial').forEach((dial, index) => {
-        dialValues[index] = 1;
-        dialTurns[index] = 0;
-        dial.querySelector('.rotor').style.transform = 'rotate(0deg)';
-        dial.querySelector('.svg-value').textContent = '1';
-        dial.setAttribute('aria-label', `ダイヤル${dialLetters[index]}：1`);
-      });
+      resetDials();
       closeModal();
+    }
+
+    function getAudioContext() {
+      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioContext.state === 'suspended') audioContext.resume();
+      return audioContext;
+    }
+
+    function tone({ frequency, duration, type = 'square', gain = 0.08, start = 0 }) {
+      const context = getAudioContext();
+      const oscillator = context.createOscillator();
+      const volume = context.createGain();
+      const now = context.currentTime + start;
+
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, now);
+      volume.gain.setValueAtTime(0.0001, now);
+      volume.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+      volume.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+      oscillator.connect(volume);
+      volume.connect(context.destination);
+      oscillator.start(now);
+      oscillator.stop(now + duration + 0.03);
+    }
+
+    function noise({ duration, gain = 0.08, start = 0, filter = 900 }) {
+      const context = getAudioContext();
+      const bufferSize = Math.max(1, Math.floor(context.sampleRate * duration));
+      const buffer = context.createBuffer(1, bufferSize, context.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+      const source = context.createBufferSource();
+      const volume = context.createGain();
+      const lowpass = context.createBiquadFilter();
+      const now = context.currentTime + start;
+
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(filter, now);
+      volume.gain.setValueAtTime(gain, now);
+      volume.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+      source.buffer = buffer;
+      source.connect(lowpass);
+      lowpass.connect(volume);
+      volume.connect(context.destination);
+      source.start(now);
+      source.stop(now + duration);
+    }
+
+    function playSound(name) {
+      const sounds = {
+        lever() {
+          noise({ duration: 0.055, gain: 0.1, filter: 650 });
+          tone({ frequency: 150, duration: 0.08, type: 'sawtooth', gain: 0.07, start: 0.035 });
+        },
+        button() {
+          tone({ frequency: 880, duration: 0.045, type: 'square', gain: 0.06 });
+          tone({ frequency: 520, duration: 0.035, type: 'square', gain: 0.045, start: 0.04 });
+        },
+        dial() {
+          tone({ frequency: 720, duration: 0.025, type: 'triangle', gain: 0.055 });
+          noise({ duration: 0.025, gain: 0.035, start: 0.018, filter: 1300 });
+        },
+        success() {
+          tone({ frequency: 523.25, duration: 0.09, type: 'sine', gain: 0.07 });
+          tone({ frequency: 659.25, duration: 0.09, type: 'sine', gain: 0.07, start: 0.085 });
+          tone({ frequency: 783.99, duration: 0.18, type: 'sine', gain: 0.08, start: 0.17 });
+        },
+        error() {
+          tone({ frequency: 170, duration: 0.12, type: 'sawtooth', gain: 0.08 });
+          tone({ frequency: 130, duration: 0.14, type: 'sawtooth', gain: 0.08, start: 0.1 });
+        },
+        reset() {
+          tone({ frequency: 640, duration: 0.055, type: 'triangle', gain: 0.055 });
+          tone({ frequency: 420, duration: 0.075, type: 'triangle', gain: 0.055, start: 0.06 });
+          tone({ frequency: 260, duration: 0.09, type: 'triangle', gain: 0.05, start: 0.135 });
+        }
+      };
+
+      try {
+        if (sounds[name]) sounds[name]();
+      } catch (error) {
+        console.warn('Sound playback failed:', error);
+      }
     }
 
     buildControls();
